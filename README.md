@@ -14,7 +14,7 @@ Il software EEX Futures Data è uno strumento progettato per recuperare e analiz
 
 ## Installazione
 Per installare il software, seguire questi passaggi:
-1. Scaricare il file `EEXFuturesData.zip`
+1. Scaricare il file [`EEXFuturesData.zip`](https://github.com/JimmyWoah/EEX-Futures-Data/raw/UpdatesVersion/EEXFuturesData.zip)
 2. Estrarre i files in qualsiasi cartella del computer
 
 ## Primo avvio
