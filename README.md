@@ -43,7 +43,7 @@ L'uso di questo software è libero, mentre i dati da esso estratti sono regolati
 - Risolto problema di compatibilità con alcune versioni del driver di Chrome.
 - Corretti bug minori relativi alla visualizzazione e all'aggiornamento dei dati.
 
-## [v0.9.0] - [15-01-2024]
+## [v0.9.0] - [11-01-2024]
 
 ### First release
 - Implementata la struttura di base dell'applicazione con la funzionalità di recupero dei dati dalla EEX.
