@@ -36,7 +36,6 @@ L'uso di questo software è libero, mentre i dati da esso estratti sono regolati
 - Implementata la funzione di controllo sulla presenza del file Excel aperto
 
 ### Miglioramenti
-- Migliorata l'interfaccia utente con nuove funzionalità e controlli
 - Ottimizzazione delle prestazioni per l'elaborazione dei dati
 
 ### Risoluzione Problemi
