@@ -27,7 +27,18 @@ L'uso di questo software è libero, mentre i dati da esso estratti sono regolati
 
 # Changelog
 
-## [v1.0.3] - [Coming 30-01-2024]
+## [v1.0.3] - [29-01-2024]
+
+### Aggiunte
+- Aggiunto controlli sul path del file Excel selezionato
+- La console del `chromedriver` adesso non è più visibile
+
+### Miglioramenti
+- Ottimizzazione delle prestazioni per l'elaborazione dei dati
+
+### Risoluzione Problemi
+- Risolto un bug per il quale il processo di estrazione dei dati non attendeva il caricamento della pagina
+- Risolto un bug per il quale il `chromedriver` rimaneva in coda per la chiusura
 
 ## [v1.0.2] - [27-01-2024]
 
