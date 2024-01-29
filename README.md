@@ -27,7 +27,7 @@ L'uso di questo software è libero, mentre i dati da esso estratti sono regolati
 
 # Changelog
 
-## [v1.1.4] - [Scheduled on 30-01-2024]
+## [v1.1.4] - [29-01-2024]
 
 ### Aggiunte
 - Aggiunta la funzione di spostamento del `form`
