@@ -27,6 +27,19 @@ L'uso di questo software è libero, mentre i dati da esso estratti sono regolati
 
 # Changelog
 
+## [v1.1.4] - [Scheduled on 30-01-2024]
+
+### Aggiunte
+- Aggiunta la funzione di spostamento del `form`
+- Aggiunta la gestione del processo di `chromedriver` in background
+- Implementata la funzione di controllo sulla presenza del file Excel aperto
+
+### Miglioramenti
+- Migliorata l'interfaccia utente con nuove funzionalità e controlli
+
+### Risoluzione Problemi
+- Risolto il problema di formattazione delle celle nel foglio Excel
+
 ## [v1.0.3] - [29-01-2024]
 
 ### Aggiunte
