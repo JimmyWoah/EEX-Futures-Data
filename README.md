@@ -27,6 +27,19 @@ L'uso di questo software è libero, mentre i dati da esso estratti sono regolati
 
 # Changelog
 
+## [v2.1.6] - [18-03-2024]
+
+### Aggiunte
+- Aggiunta la gestione del processo di `chromedriver` in background
+
+### Miglioramenti
+- Ottimizzazione delle prestazioni per l'elaborazione dei dati
+- Miglioramenti dell'interfaccia grafica del `form`
+
+### Risoluzione Problemi
+- Risolto un bug per il quale il `chromedriver` non interagiva correttamente con i `cookies`
+- Risolto un bug per il quale il `chromedriver` non rilevava correttamente il disclaimer della pagina
+
 ## [v1.1.4] - [29-01-2024]
 
 ### Aggiunte
@@ -80,7 +93,3 @@ L'uso di questo software è libero, mentre i dati da esso estratti sono regolati
 - Implementata la struttura di base dell'applicazione con la funzionalità di recupero dei dati dalla EEX.
 - Aggiunta interfaccia utente per la selezione delle opzioni e la visualizzazione dei risultati.
 - Funzionalità di salvataggio e caricamento dei dati su file Excel.
-
-
-
-
