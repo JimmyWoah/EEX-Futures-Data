@@ -27,6 +27,20 @@ L'uso di questo software è libero, mentre i dati da esso estratti sono regolati
 
 # Changelog
 
+## [v2.2.6] - [02-11-2024]
+
+### Aggiunte
+- None
+
+### Miglioramenti
+- Ottimizzazione delle prestazioni per l'elaborazione dei dati
+- Miglioramenti dell'interfaccia grafica del `form`
+- Ottimizzazione della gestione degli `updates`
+- Ottimizzazione download nuove versioni di `chromedriver`
+
+### Risoluzione Problemi
+- Risolto un bug per il quale il prompt del `chromedriver` non rilevava il parametro `hidden`
+
 ## [v2.1.6] - [18-03-2024]
 
 ### Aggiunte
