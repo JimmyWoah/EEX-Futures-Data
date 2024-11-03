@@ -1,42 +1,217 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using System.Windows.Forms;
+using System.Xml.Serialization;
 
-namespace FaceRecognizer
+namespace TrainData
 {
-    internal static class Program
+    [Serializable]
+    public class SerializableEigenFaceRecognizerData
     {
-        /// <summary>
-        /// Punto di ingresso principale dell'applicazione.
-        /// </summary>
-        [STAThread]
-        static void Main()
+        [XmlElement("NumComponents")]
+        public int NumComponents { get; set; }
+
+        [XmlElement("Threshold")]
+        public double Threshold { get; set; }
+
+        public SerializableEigenFaceRecognizerData()
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new Form1());
-
+            // Costruttore senza parametri necessario per la serializzazione XML
         }
-    }
-}
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace FaceRecognizer
-{
-    public class PredictionResult
-    {
-        public int Label { get; set; }
-        public double Distance { get; set; }
+        public SerializableEigenFaceRecognizerData(int numComponents, double threshold)
+        {
+            NumComponents = numComponents;
+            Threshold = threshold;
+        }
     }
 }
 
 using Emgu.CV.Face;
+using Emgu.CV.Structure;
+using Emgu.CV;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Runtime.Serialization.Formatters.Binary;
+using System.Runtime.Serialization;
+using System;
+using TrainData;
+using Emgu.CV.CvEnum;
+
+public class FaceRecognizerTrainer
+{
+    private string modelPath;
+    private int numComponents;
+    private double threshold;
+    private Mat[] imageMats;
+    private int[] labelsInt;
+    public EigenFaceRecognizer recognizer;
+    public SerializableEigenFaceRecognizer eigenFaceRecognizer;
+
+    public FaceRecognizerTrainer(EigenFaceRecognizer recognizer, string modelPath, int numComponents, double threshold)
+    {
+        this.recognizer = recognizer;
+        this.eigenFaceRecognizer = new SerializableEigenFaceRecognizer(numComponents, threshold);
+        this.modelPath = modelPath;
+        this.numComponents = numComponents;
+        this.threshold = threshold;
+
+        if (recognizer == null)
+        {
+            throw new ArgumentNullException(nameof(recognizer), "Il riconoscitore facciale deve essere inizializzato prima di utilizzarlo.");
+        }
+    }
+
+    public void TrainModel(SerializableEigenFaceRecognizer recognizer, Image<Gray, byte>[] images, string[] labels, Size targetSize)
+    {
+        // Ridimensiona tutte le immagini al targetSize
+        images = images.Select(img => img.Resize(targetSize.Width, targetSize.Height, Inter.Linear)).ToArray();
+
+        // Crea un array di matrici per le immagini (è necessario convertire Image<Gray, byte> in Mat)
+        imageMats = images.Select(img => img.Mat).ToArray();
+
+        // Converte l'array di etichette in un array di int (richiesto dal metodo Train)
+        labelsInt = labels.Select(label => int.Parse(label)).ToArray();
+
+        // Debug sul numero di campioni
+        Console.WriteLine($"Numero di campioni: {images.Length}");
+
+        if (recognizer != null)
+        {
+            // Verifica che le dimensioni di imageMats e labelsInt siano le stesse
+            if (imageMats.Length != labelsInt.Length)
+            {
+                throw new InvalidOperationException("The sizes of imageMats and labelsInt do not match.");
+            }
+
+            Console.WriteLine("Inizio addestramento...");
+
+            // Esegui l'addestramento utilizzando tutte le immagini e le etichette
+            recognizer.Train(imageMats, labelsInt);
+
+            recognizer.SaveModel(modelPath);
+
+            if (!File.Exists(modelPath))
+            {
+                throw new InvalidOperationException("The model was not saved correctly.");
+            }
+
+            Console.WriteLine("Addestramento completato e modello salvato.");
+        }
+        else
+        {
+            throw new ArgumentNullException(nameof(recognizer), "Il riconoscitore facciale deve essere inizializzato prima di utilizzarlo.");
+        }
+    }
+    public void SaveRecognizerModel(string modelPath)
+    {
+        EigenFaceRecognizer newRecognizer = new EigenFaceRecognizer(150, double.PositiveInfinity);
+
+        // Verifica che imageMats e labelsInt siano validi
+        if (imageMats == null || labelsInt == null || imageMats.Length != labelsInt.Length)
+        {
+            throw new InvalidOperationException("Invalid training data.");
+        }
+
+        newRecognizer.Train(imageMats, labelsInt);
+
+        using (MemoryStream stream = new MemoryStream())
+        {
+            IFormatter formatter = new BinaryFormatter();
+            formatter.Serialize(stream, newRecognizer);
+            File.WriteAllBytes(modelPath, stream.ToArray());
+        }
+    }
+}
+
+
+using Emgu.CV;
+using Emgu.CV.CvEnum;
+using Emgu.CV.Structure;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.IO;
+using System.Linq;
+
+namespace TrainData
+{
+    internal class DatasetLoader
+    {
+        public Dataset LoadDatasetFromCSV(string csvFilePath)
+        {
+            var dataset = new Dataset();
+
+            // Verifica se il file CSV esiste
+            if (!File.Exists(csvFilePath))
+            {
+                throw new FileNotFoundException($"Il file {csvFilePath} non esiste.");
+            }
+
+            // Leggi tutte le righe dal file CSV
+            var csvLines = File.ReadAllLines(csvFilePath);
+
+            foreach (var line in csvLines.Skip(1)) // Saltiamo la prima riga poiché è l'intestazione
+            {
+                var parts = line.Split(',');
+                if (parts.Length >= 2)
+                {
+                    string imagePath = parts[0].Trim();
+                    string label = parts[1].Trim();
+
+                    // Verifica se l'immagine esiste
+                    if (!File.Exists(imagePath))
+                    {
+                        throw new FileNotFoundException($"L'immagine {imagePath} non esiste.");
+                    }
+
+                    // Carica l'immagine utilizzando il percorso e convertila in un oggetto Image<Gray, byte>
+                    var image = new Image<Gray, byte>(imagePath);
+
+                    // Aggiungi l'immagine e l'etichetta al dataset
+                    dataset.ImagePath.Add(image);
+                    dataset.Label.Add(label);
+                }
+            }
+
+            return dataset;
+        }
+
+        public (List<Image<Gray, byte>>, List<string>) LoadImagesAndLabels(string datasetDirectory)
+        {
+            var imageList = new List<Image<Gray, byte>>();
+            var labelList = new List<string>();
+
+            // Verifica se la directory del dataset esiste
+            if (!Directory.Exists(datasetDirectory))
+            {
+                throw new DirectoryNotFoundException($"La directory {datasetDirectory} non esiste.");
+            }
+
+            // Load images and labels
+            foreach (var personDirectory in Directory.EnumerateDirectories(datasetDirectory))
+            {
+                string personName = Path.GetFileName(personDirectory);
+
+                foreach (var imagePath in Directory.EnumerateFiles(personDirectory, "*.jpg"))
+                {
+                    // Verifica se l'immagine esiste
+                    if (!File.Exists(imagePath))
+                    {
+                        throw new FileNotFoundException($"L'immagine {imagePath} non esiste.");
+                    }
+
+                    Image<Gray, byte> image = new Image<Gray, byte>(imagePath);
+                    imageList.Add(image);
+                    labelList.Add(personName);
+                }
+            }
+
+            return (imageList, labelList);
+        }
+    }
+}
+
+using Emgu.CV.Structure;
 using Emgu.CV;
 using System;
 using System.Collections.Generic;
@@ -44,533 +219,333 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace FaceRecognizer
+namespace TrainData
+{
+    public class Dataset
+    {
+        public List<Image<Gray, byte>> ImagePath { get; set; }
+        public List<string> Label { get; set; }
+
+        public Dataset()
+        {
+            ImagePath = new List<Image<Gray, byte>>();
+            Label = new List<string>();
+        }
+    }
+
+}
+
+
+using Emgu.CV.Face;
+using Emgu.CV;
+using System;
+using System.IO;
+using System.Runtime.Serialization.Formatters.Binary;
+using System.Xml.Serialization;
+
+
+namespace TrainData
 {
     [Serializable]
     public class SerializableEigenFaceRecognizer
     {
+        private SerializableEigenFaceRecognizerData data;
         private EigenFaceRecognizer recognizer;
 
+        public EigenFaceRecognizer Recognizer
+        {
+            get { return recognizer; }
+            set { recognizer = value; }
+        }
         public SerializableEigenFaceRecognizer(int numComponents, double threshold)
         {
+            data = new SerializableEigenFaceRecognizerData(numComponents, threshold);
             recognizer = new EigenFaceRecognizer(numComponents, threshold);
         }
 
         public void Train(Mat[] imageMats, int[] labels)
         {
+            // Verifica che imageMats e labels siano validi
+            if (imageMats == null || labels == null || imageMats.Length != labels.Length)
+            {
+                throw new InvalidOperationException("Invalid training data.");
+            }
+
             recognizer.Train(imageMats, labels);
         }
-
         public void SaveModel(string filename)
         {
+            // Utilizza il metodo Write per salvare il modello
             recognizer.Write(filename);
         }
-
         public void LoadModel(string filename)
         {
+            // Utilizza il metodo Read per caricare il modello
             recognizer.Read(filename);
         }
-
-        public int Predict(Mat input)
-        {
-            if (recognizer != null)
-            {
-                var predictionResult = recognizer.Predict(input);
-                return predictionResult.Label;
-            }
-            else
-            {
-                // Gestire il caso in cui eigenFaceRecognizer è nullo
-                // Ad esempio, puoi lanciare un'eccezione o gestire l'errore in altro modo.
-                return -1; // Valore predefinito o codice di errore
-            }
-        }
     }
 }
+
 using Emgu.CV.Face;
-using Emgu.CV.Structure;
-using Emgu.CV;
-using System;
-using System.IO;
-using System.Linq;
-using System.Runtime.Serialization;
-using System.Runtime.Serialization.Formatters.Binary;
-using Emgu.CV.CvEnum;
-using System.Collections.Generic;
-using System.Drawing;
-
-namespace FaceRecognizer
-{
-    public class FaceRecognizerTrainer
-    {
-        private SerializableEigenFaceRecognizer recognizer;
-
-        public FaceRecognizerTrainer(SerializableEigenFaceRecognizer recognizer)
-        {
-            // Inizializza il riconoscitore facciale qui con i tuoi parametri desiderati
-            this.recognizer = recognizer;
-        }
-
-        public void TrainModel(Image<Gray, byte>[] images, string[] labels, Size targetSize)
-        {
-            // Debug del ridimensionamento delle immagini
-            for (int i = 0; i < images.Length; i++)
-            {
-                string imagePath = $"Image {i + 1} - Label: {labels[i]} - Size: {images[i].Size}";
-                CvInvoke.Imshow(imagePath, images[i]);
-                //CvInvoke.WaitKey(0);
-            }
-
-            // Ridimensiona tutte le immagini al targetSize
-            images = images.Select(img => img.Resize(targetSize.Width, targetSize.Height, Inter.Linear)).ToArray();
-
-            // Debug delle immagini ridimensionate
-            for (int i = 0; i < images.Length; i++)
-            {
-                string imagePath = $"Resized Image {i + 1} - Label: {labels[i]} - Size: {images[i].Size}";
-                CvInvoke.Imshow(imagePath, images[i]);
-                //CvInvoke.WaitKey(0);
-            }
-
-            // Crea un array di matrici per le immagini (è necessario convertire Image<Gray, byte> in Mat)
-            Mat[] imageMats = images.Select(img => img.Mat).ToArray();
-
-            // Converte l'array di etichette in un array di int (richiesto dal metodo Train)
-            int[] labelsInt = labels.Select(label => int.Parse(label)).ToArray();
-
-            // Debug delle etichette convertite
-            for (int i = 0; i < labelsInt.Length; i++)
-            {
-                Console.WriteLine($"Label {i + 1}: {labelsInt[i]}");
-            }
-
-            // Debug sul numero di campioni
-            Console.WriteLine($"Numero di campioni: {images.Length}");
-
-            // Addestra il modello con le immagini e le etichette
-            recognizer.Train(imageMats, labelsInt);
-        }
-
-        public void SaveRecognizerModel(string modelPath)
-        {
-            // Serializza il modello e salvalo su un file
-            using (MemoryStream stream = new MemoryStream())
-            {
-                IFormatter formatter = new BinaryFormatter();
-                formatter.Serialize(stream, recognizer);
-                File.WriteAllBytes(modelPath, stream.ToArray());
-            }
-        }
-
-        public SerializableEigenFaceRecognizer LoadRecognizerModel(string modelPath)
-        {
-            // Carica il modello da un file
-            using (Stream stream = File.Open(modelPath, FileMode.Open))
-            {
-                IFormatter formatter = new BinaryFormatter();
-                return (SerializableEigenFaceRecognizer)formatter.Deserialize(stream);
-            }
-        }
-    }
-}
-using Emgu.CV;
-using Emgu.CV.CvEnum;
-using Emgu.CV.Structure;
-using System;
-using System.Collections.Generic;
-using System.Data;
-using System.IO;
-
-namespace FaceRecognizer
-{
-    internal class DatasetLoader
-    {
-
-        public Dataset LoadDatasetFromCSV(string csvFilePath)
-        {
-            var dataset = new Dataset();
-
-            // Leggi il file CSV e riempi il dataset
-            // ...
-
-            return dataset;
-        }
-        public List<Image<Gray, byte>> LoadImages(string datasetDirectory)
-        {
-            var imageList = new List<Image<Gray, byte>>();
-
-            // Per ogni sottocartella, carica le immagini
-            foreach (var personDirectory in Directory.GetDirectories(datasetDirectory))
-            {
-                foreach (var imagePath in Directory.GetFiles(personDirectory, "*.jpg"))
-                {
-                    Image<Gray, byte> image = new Image<Gray, byte>(imagePath);
-                    imageList.Add(image);
-                }
-            }
-
-            return imageList;
-        }
-
-        public List<string> LoadLabels(string datasetDirectory)
-        {
-            var labelList = new List<string>();
-
-            // Per ogni sottocartella, carica le etichette
-            foreach (var personDirectory in Directory.GetDirectories(datasetDirectory))
-            {
-                string personName = Path.GetFileName(personDirectory);
-
-                foreach (var imagePath in Directory.GetFiles(personDirectory, "*.jpg"))
-                {
-                    labelList.Add(personName);
-                }
-            }
-
-            return labelList;
-        }
-    }
-}
-using Emgu.CV;
-using Emgu.CV.CvEnum;
-using Emgu.CV.Structure;
-using System;
-using System.Linq;
-
-namespace FaceRecognizer
-{
-    internal class LBPFeatureExtractor
-    {
-        // Funzione per estrarre le feature LBP da un'immagine
-        public static float[] ExtractLBPFeatures(Image<Gray, byte> image)
-        {
-            int width = image.Width;
-            int height = image.Height;
-
-            // Creare un array per le feature LBP
-            float[] lbpFeatures = new float[256]; // LBP produce 256 possibili pattern
-
-            // Loop attraverso i pixel dell'immagine escludendo i bordi
-            for (int y = 1; y < height - 1; y++)
-            {
-                for (int x = 1; x < width - 1; x++)
-                {
-                    byte centerValue = image.Data[y, x, 0];
-                    int pattern = 0;
-
-                    // Calcola il pattern LBP
-                    for (int i = 0; i < 8; i++)
-                    {
-                        int offsetX = x + (int)Math.Round(Math.Cos(i * Math.PI / 4));
-                        int offsetY = y - (int)Math.Round(Math.Sin(i * Math.PI / 4));
-                        byte neighborValue = image.Data[offsetY, offsetX, 0];
-                        pattern |= (byte)(neighborValue >= centerValue ? 1 : 0) << i;
-                    }
-
-                    // Incrementa il contatore del pattern rilevato
-                    lbpFeatures[pattern]++;
-                }
-            }
-
-            // Normalizza le feature LBP (facoltativo)
-            float sum = lbpFeatures.Sum();
-            if (sum > 0)
-            {
-                for (int i = 0; i < 256; i++)
-                {
-                    lbpFeatures[i] /= sum;
-                }
-            }
-
-            return lbpFeatures;
-        }
-    }
-}
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using Emgu.CV;
 using Emgu.CV.CvEnum;
+using Emgu.CV;
 using Emgu.CV.Structure;
 using Emgu.CV.UI;
-using System.IO;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
-using Emgu.CV.Face;
 using Emgu.CV.Util;
 using System.Drawing.Drawing2D;
 using Emgu.CV.Legacy;
+using System.Threading;
 
-namespace FaceRecognizer
+
+namespace TrainData
 {
-
     public partial class Form1 : Form
     {
-        private SerializableEigenFaceRecognizer eigenFaceRecognizer;
-        private VideoCapture capture;
-        private BackgroundWorker faceDetectionWorker;
-        //private EigenFaceRecognizer recognizer;
+        //private EigenFaceRecognizer recognizer; // Dichiara il riconoscitore facciale
+        //private SerializableEigenFaceRecognizer serializableEigenFaceRecognizer; // Dichiarazione di SerializableEigenFaceRecognizer
+        //private BackgroundWorker trainingWorker;
+        //private SerializableEigenFaceRecognizer eigenFaceRecognizer;
+        //private FaceRecognizerTrainer trainer;
+       // private SerializableEigenFaceRecognizer serializableEigenFaceRecognizer;
+        private BackgroundWorker trainingWorker;
         private FaceRecognizerTrainer trainer;
+
+
+
 
 
 
         public Form1()
         {
             InitializeComponent();
-            //TrainModel();
-            int numComponents = 80; // Imposta il numero di componenti principali
-            double threshold = 5000; // Imposta una soglia di confidenza
-            eigenFaceRecognizer = new SerializableEigenFaceRecognizer(numComponents, threshold);
+            int numComponents = 150;
+            double threshold = double.PositiveInfinity;
+            trainer = new FaceRecognizerTrainer(new EigenFaceRecognizer(numComponents, threshold), "C:\\Users\\Jimmy\\Desktop\\VSProjects\\Progetti_2023\\Modelli\\Set_Jimmy\\face_recognizer_model.xml", numComponents, threshold);
 
-            capture = new VideoCapture(0);
-            Application.Idle += new EventHandler(ProcessFrame);
-            FaceRecognizerTrainer trainer = new FaceRecognizerTrainer(eigenFaceRecognizer);
-            //FaceRecognizerTrainer trainer = new FaceRecognizerTrainer();
-            //eigenFaceRecognizer = trainer.LoadRecognizerModel("C:\\Users\\Jimmy\\Desktop\\Progetti_2023\\FaceRecognizer\\haarcascade_frontalcatface.dat");
-            button2.Click += new EventHandler(LoadModelButton_Click);
+            // Inizializza il riconoscitore facciale con i parametri desiderati
+            //trainer.recognizer = new EigenFaceRecognizer(80, double.PositiveInfinity);
+            //trainer.eigenFaceRecognizer = new SerializableEigenFaceRecognizer(80, double.PositiveInfinity);
 
 
 
-            // Backgroundworker
-            faceDetectionWorker = new BackgroundWorker();
-            faceDetectionWorker.WorkerReportsProgress = true;
-            faceDetectionWorker.WorkerSupportsCancellation = true;
-            faceDetectionWorker.DoWork += new DoWorkEventHandler(DoFaceDetection);
-            faceDetectionWorker.RunWorkerCompleted += new RunWorkerCompletedEventHandler(FaceDetectionCompleted);
-        }
+            // Inizializza il BackgroundWorker per il training
+            trainingWorker = new BackgroundWorker();
+            trainingWorker.DoWork += new DoWorkEventHandler(DoTraining);
+            trainingWorker.RunWorkerCompleted += new RunWorkerCompletedEventHandler(TrainingComplete);
+            trainingWorker.ProgressChanged += new ProgressChangedEventHandler(TrainiingChanged);
+            trainingWorker.WorkerReportsProgress = true;
+            trainingWorker.WorkerSupportsCancellation = true;
 
-        private void LoadModelButton_Click(object sender, EventArgs e)
-        {
-            if (eigenFaceRecognizer == null)
-            {
-                try
-                {
-                    // Carica il modello
-                    eigenFaceRecognizer = trainer.LoadRecognizerModel("C:\\Users\\Jimmy\\Desktop\\VSProjects\\Progetti_2023\\FaceRecognizer\\face_recognizer_model.xml");
-                    MessageBox.Show("Modello caricato con successo!", "Caricamento completato", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Errore durante il caricamento del modello: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-            else
-            {
-                MessageBox.Show("Il modello è già stato caricato.", "Attenzione", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-        }
+            // Inizializza la tua istanza di eigenFaceRecognizer qui
 
-        private void TrainModel()
-        {
-            // Carica il dataset da un file CSV
-            var datasetPath = "C:\\Users\\Jimmy\\Desktop\\Progetti_2023\\Modelli\\Set_Jimmy";
-            var datasetLoader = new DatasetLoader();
-            var dataset = datasetLoader.LoadDatasetFromCSV(datasetPath);
-
-            // Estrai le immagini e le etichette dal dataset
-            var images = datasetLoader.LoadImages(datasetPath);
-            var labels = datasetLoader.LoadLabels(datasetPath);
-
-            Console.WriteLine($"Numero di immagini caricate: {images.Count}");
-            Console.WriteLine($"Numero di etichette caricate: {labels.Count}");
-
-
-            progressBar1.Minimum = 0;
-            progressBar1.Maximum = images.Count;
-            progressBar1.Value = 0;
-
-            trainer = new FaceRecognizerTrainer(eigenFaceRecognizer); // Passa l'istanza di eigenFaceRecognizer al costruttore
-            Size targetSize = new Size(100, 100); // Specifica le dimensioni desiderate
-            Console.WriteLine($"Dimensioni delle immagini dopo il ridimensionamento: {targetSize}");
-
-
-            trainer.TrainModel(images.ToArray(), labels.ToArray(), targetSize);
-
-            // Salva il modello addestrato
-            //trainer.SaveRecognizerModel("C:\\Users\\Jimmy\\Desktop\\Progetti_2023\\Modelli\\Set_Jimmy\\face_recognizer_model.dat");
-            trainer.SaveRecognizerModel("C:\\Users\\Jimmy\\Desktop\\VSProjects\\Progetti_2023\\FaceRecognizer\\face_recognizer_model.xml");
-
-
-            // Aggiorna la barra di avanzamento
-            progressBar1.Value = images.Count;
-
-            // Addestramento completato, mostra un messaggio
-            MessageBox.Show("Addestramento completato!", "Completato", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
-
-
-        private void StartFaceDetection()
-        {
-            if (!faceDetectionWorker.IsBusy)
-            {
-                faceDetectionWorker.RunWorkerAsync();
-            }
-        }
-        private void StopFaceDetection()
-        {
-            if (faceDetectionWorker.IsBusy)
-            {
-                faceDetectionWorker.CancelAsync();
-            }
-        }
-
-        private void DoFaceDetection(object sender, DoWorkEventArgs e)
-        {
-
-            int label;
-            double distance;
-            BackgroundWorker worker = sender as BackgroundWorker;
-
-
-            while (!worker.CancellationPending)
-            {
-                Mat frame = new Mat();
-                capture.Read(frame);
-
-                if (frame.IsEmpty)
-                    return;
-
-                Mat grayFrame = new Mat();
-                CvInvoke.CvtColor(frame, grayFrame, ColorConversion.Bgr2Gray);
-
-
-                // Utilizza il riconoscitore facciale per prevedere il volto
-                int result = eigenFaceRecognizer.Predict(grayFrame);
-
-
-
-                // Verifica il risultato del riconoscimento
-                if (result == 0)
-                {
-                    // Riconosciuto come "Jimmy"
-                    // Disegna un rettangolo intorno al volto riconosciuto o esegui un'azione specifica
-                    // Ad esempio, utilizza CvInvoke.Rectangle per disegnare un rettangolo sul frame
-                    Rectangle rect = FindFaceRectangle(grayFrame, result);
-                    CvInvoke.Rectangle(frame, rect, new MCvScalar(0, 255, 0), 2);
-                }
-                else if (result == 1)
-                {
-                    // Riconosciuto come "Simone"
-                    // Disegna un rettangolo intorno al volto riconosciuto o esegui un'azione specifica
-                }
-                // Aggiungi ulteriori condizioni per altre etichette se necessario
-
-                // Invia i risultati al thread UI
-                worker.ReportProgress(0, frame);
-            }
-        }
-
-        private Rectangle FindFaceRectangle(Mat image, int label)
-        {
-            int predictedLabel = eigenFaceRecognizer.Predict(image);
-
-            if (predictedLabel == label)
-            {
-                // Riconosciuto come "Jimmy" (o l'etichetta desiderata)
-                // Puoi calcolare il rettangolo del volto in base alle coordinate previste
-                // Ad esempio, trova il contorno del volto nell'immagine
-                VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint();
-                CvInvoke.FindContours(image, contours, null, RetrType.External, ChainApproxMethod.ChainApproxSimple);
-
-                if (contours.Size > 0)
-                {
-                    Rectangle rect = CvInvoke.BoundingRectangle(contours[0]);
-                    return rect;
-                }
-            }
-
-            // Se non viene riconosciuto, restituisci un rettangolo vuoto o gestisci il caso appropriato
-            return Rectangle.Empty;
-        }
-
-
-        private void FaceDetectionCompleted(object sender, RunWorkerCompletedEventArgs e)
-        {
-            if (e.Error == null)
-            {
-                // Aggiorna l'interfaccia utente con i risultati
-                Rectangle[] faces = e.Result as Rectangle[];
-                // Disegna i rettangoli e i nomi dei volti e aggiorna l'immagine nel PictureBox
-                // ...
-
-                // Avvia nuovamente il rilevamento dei volti
-                StartFaceDetection();
-            }
-        }
-
-        // Creare una struttura dati per associare i nomi ai rettangoli dei volti
-        Dictionary<Rectangle, string> faceNames = new Dictionary<Rectangle, string>();
-
-        private void ProcessFrame(object sender, EventArgs e)
-        {
-            Mat frame = new Mat();
-            capture.Read(frame);
-
-            if (frame.IsEmpty)
-                return;
-
-            Mat grayFrame = new Mat();
-            CvInvoke.CvtColor(frame, grayFrame, ColorConversion.Bgr2Gray);
-
-            // Utilizza il riconoscitore facciale per prevedere il volto
-            int label = eigenFaceRecognizer.Predict(grayFrame);
-
-            // Verifica il risultato del riconoscimento
-            if (label == 0)
-            {
-                // Riconosciuto come "Jimmy"
-                // Disegna un rettangolo intorno al volto riconosciuto o esegui un'azione specifica
-                Rectangle rect = FindFaceRectangle(grayFrame, label);
-                CvInvoke.Rectangle(frame, rect, new MCvScalar(0, 255, 0), 2);
-            }
-            // Aggiungi ulteriori condizioni per altre etichette se necessario
-
-            // Altre operazioni e disegni dei rettangoli e dei nomi dei volti
-            // ...
-
-            Image<Bgr, byte> image = frame.ToImage<Bgr, byte>();
-
-            // Converte l'immagine in un array di byte
-            byte[] imageBytes = image.ToJpegData();
-            using (MemoryStream stream = new MemoryStream(imageBytes))
-            {
-                pictureBox1.Image = new Bitmap(stream);
-            }
-        }
-
-
-        private string GetNameForFace(Rectangle face)
-        {
-            throw new NotImplementedException();
-        }
-
-        private void Form1_Load(object sender, EventArgs e)
-        {
 
         }
 
-        private void button1_Click(object sender, EventArgs e)
-        {
-            TrainModel();
-        }
-
-        private void button2_Click(object sender, EventArgs e)
+        private void DoTraining(object sender, DoWorkEventArgs e)
         {
             try
             {
-                // Carica il modello
-                eigenFaceRecognizer = trainer.LoadRecognizerModel("C:\\Users\\Jimmy\\Desktop\\VSProjects\\Progetti_2023\\FaceRecognizer\\face_recognizer_model.xml");
-                MessageBox.Show("Modello caricato con successo!", "Caricamento completato", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                var datasetPath = "C:\\Users\\Jimmy\\Desktop\\VSProjects\\Progetti_2023\\Modelli\\Set_Jimmy\\dataset.csv";
+                var dataset = LoadDataset(datasetPath);
+
+                var images = dataset.ImagePath;
+                var labels = dataset.Label;
+
+                //DisplayImageCount(images);
+                //DisplayLabelCount(labels);
+                int totalImages = images.Count;
+                for (int i = 0; i < totalImages; i++)
+                {
+                    // Processa l'immagine
+
+                    // Calcola il progresso in percentuale
+                    int progress = (i * 100) / totalImages;
+
+                    // Aggiorna la ProgressBar
+                    UpdateProgressBar(progress);
+                }
+
+                var targetSize = new Size(500, 500);
+                DisplayResizedImageDimensions(targetSize);
+
+                // Converte la lista di immagini in un array di immagini
+                Emgu.CV.Image<Emgu.CV.Structure.Gray, byte>[] imageArray = images.ToArray();
+                // Converte la lista di stringhe in un array di stringhe
+                string[] labelsArray = labels.ToArray();
+
+               trainer.TrainModel(trainer.eigenFaceRecognizer, imageArray, labelsArray, targetSize);
+
+                ShowTrainingCompletedMessage();
+
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Errore durante il caricamento del modello: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Console.WriteLine("Errore durante l'addestramento: " + ex.Message);
             }
         }
+
+        private Dataset LoadDataset(string datasetPath)
+        {
+            var datasetLoader = new DatasetLoader();
+            var dataset = datasetLoader.LoadDatasetFromCSV(datasetPath);
+
+            if (dataset == null || dataset.ImagePath == null || dataset.Label == null)
+            {
+                throw new InvalidOperationException("Invalid dataset or missing Images/Labels properties");
+            }
+
+            // Stampa il contenuto del dataset per il debug
+            Console.WriteLine($"Dataset loaded: {dataset.ImagePath.Count} images, {dataset.Label.Count} labels");
+
+            return dataset;
+        }
+        private void DisplayImageCount(List<Image> images)
+        {
+            Console.WriteLine($"Numero di immagini caricate: {images.Count}");
+        }
+
+        private void DisplayLabelCount(List<Label> labels)
+        {
+            Console.WriteLine($"Numero di etichette caricate: {labels.Count}");
+        }
+
+        private void UpdateProgressBar(int progress)
+        {
+            trainingWorker.ReportProgress(progress);
+        }
+
+        private void DisplayResizedImageDimensions(Size targetSize)
+        {
+            Console.WriteLine($"Dimensioni delle immagini dopo il ridimensionamento: {targetSize}");
+        }
+
+        private void ShowTrainingCompletedMessage()
+        {
+            MessageBox.Show("Addestramento completato!", "Completato", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+        }
+        private void TrainiingChanged(object sender, ProgressChangedEventArgs e)
+        {
+            // Aggiorna la ProgressBar con il valore di avanzamento
+            progressBar1.Value = e.ProgressPercentage;
+        }
+
+        private void TrainingComplete(object sender, RunWorkerCompletedEventArgs e)
+        {
+            if (e.Error != null)
+            {
+                // Gestisci eventuali errori
+                label1.Text = "Errore durante il training: " + e.Error.Message;
+            }
+            else
+            {
+                // Chiamare il metodo SaveModel per ottenere il SerializableEigenFaceRecognizer
+                //SerializableEigenFaceRecognizer recognizerToSave = trainer.SaveModel();
+
+                    // Serializzare e salvare il modello
+                    if (trainer.recognizer != null)
+                    {
+                        //trainer.recognizer.Write("C:\\Users\\Jimmy\\Desktop\\Progetti_2023\\Modelli\\Set_Jimmy\\face_recognizer_model.dat");
+                        label1.Text = "Addestramento completato e modello salvato!";
+
+                }
+                else
+                    {
+                        label1.Text = "Errore: Addestramento non riuscito o modello nullo.";
+                    }
+                
+            }
+            button1.Enabled = true;
+        }
+        private void button1_Click(object sender, EventArgs e)
+        {
+            // Disabilita il pulsante durante il training per evitarne l'avvio ripetuto
+            if (!trainingWorker.IsBusy)
+            {
+                button1.Enabled = false;
+
+                // Avvia il BackgroundWorker per il training
+
+                trainingWorker.RunWorkerAsync();
+            }
+        }
+
+
+        private void button2_Click(object sender, EventArgs e)
+        {
+            // Load the face recognition model
+            var recognizer = new SerializableEigenFaceRecognizer(150, double.PositiveInfinity);
+            recognizer.LoadModel("C:\\Users\\Jimmy\\Desktop\\Progetti_2023\\Modelli\\Set_Jimmy\\face_recognizer_model.xml");
+
+            // Set a threshold for face recognition
+            double recognitionThreshold = 200.0;
+
+            // Create an array of test images
+            string[] imagePaths = Directory.GetFiles("C:\\Users\\Jimmy\\Desktop\\Progetti_2023\\Modelli\\Set_Jimmy\\da_rinominare", "*.jpg")
+                                                .OrderBy(path => path)
+                                                .ToArray();
+
+            // Variable to track the positive results
+            int correct = 0;
+
+            // Perform face recognition on each test image
+            foreach (string imagePath in imagePaths)
+            {
+                var targetSize = new Size(500, 500);
+
+                // Convert the image to an array of matrices
+                Image<Gray, byte> image = new Image<Gray, byte>(imagePath); // Sostituisci testImagePath con il percorso dell'immagine di test
+                image = image.Resize(targetSize.Width, targetSize.Height, Inter.Linear);
+
+                Mat[] imageMats = new Mat[] { image.Mat };
+
+                // Convert the array of matrices to an IInputArray object
+                IInputArray[] inputArray = Array.ConvertAll(imageMats, mat => (IInputArray)mat);
+
+                // Convert the SerializableEigenFaceRecognizer object to an EigenFaceRecognizer object
+                EigenFaceRecognizer recognizerEigen = recognizer.Recognizer;
+
+                // Perform face recognition
+                FaceRecognizer.PredictionResult[] results = new FaceRecognizer.PredictionResult[imageMats.Length];
+                for (int i = 0; i < imageMats.Length; i++)
+                {
+                    results[i] = recognizerEigen.Predict(imageMats[i]);
+
+                    // Check if the distance is below the recognition threshold
+                    if (results[i].Distance < recognitionThreshold)
+                    {
+                        Console.WriteLine($"Immagine: {Path.GetFileName(imagePath)} - Etichetta reale: {Path.GetFileNameWithoutExtension(imagePath)}, Etichetta prevista: {results[i].Label} (Riconosciuto)");
+                        correct++;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Immagine: {Path.GetFileName(imagePath)} - Etichetta reale: {Path.GetFileNameWithoutExtension(imagePath)}, Etichetta prevista: {results[i].Label} (Non riconosciuto)");
+                    }
+                }
+            }
+
+            // Calculate the accuracy
+            double accuracy = (correct / (double)imagePaths.Length) * 100;
+
+            // Print the results
+            Console.WriteLine($"The accuracy of the model is {accuracy}%.");
+        }
+
+
+
+
     }
 }
+
+
