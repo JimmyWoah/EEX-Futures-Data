@@ -28,7 +28,7 @@ namespace cazzoneso
             _capture = new VideoCapture(0, VideoCapture.API.Msmf); // Cambia 0 con l'indice della tua videocamera
             _recognizer = new LBPHFaceRecognizer(1, 8, 8, 8, 100); // Parametri ottimizzati per una maggiore precisione
 
-            string faceCascadePath = "C:\\Users\\Jimmy\\Desktop\\VSProjects\\Progetti_2023\\Modelli\\Set_Jimmy\\haarcascade_frontalface_default.xml";
+            string faceCascadePath = "C:\\haarcascade_frontalface_default.xml";
             if (File.Exists(faceCascadePath))
             {
                 _faceCascade = new CascadeClassifier(faceCascadePath);
@@ -216,7 +216,7 @@ namespace cazzoneso
                 _recognizer.Train(trainingImages.ToArray(), labels.ToArray());
 
                 Console.WriteLine("Saving the trained model...");
-                _recognizer.Write("C:\\Users\\Jimmy\\Desktop\\VSProjects\\Progetti_2023\\Modelli\\Set_Jimmy\\face_recognizer_model.xml");
+                _recognizer.Write("C:\\face_recognizer_model.xml");
 
                 _isModelTrained = true;
                 Console.WriteLine("Model trained successfully.");
